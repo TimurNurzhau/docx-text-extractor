@@ -24,7 +24,7 @@ public class TextFileCollector {
             }
 
             // 2. Запрашиваем имя для выходного файла (будет сохранен на D:)
-            System.out.println("Введите имя выходного файла (например, result.java):");
+            System.out.println("Введите имя выходного файла (по умолчанию сохраняется на диск D), например, result.java:");
             String outputFileName = reader.readLine();
 
             // Формируем полный путь на диске D
