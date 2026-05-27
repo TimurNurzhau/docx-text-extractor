@@ -2,6 +2,11 @@ package com.example;
 
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xslf.extractor.XSLFExtractor;
+import org.apache.poi.xslf.usermodel.XMLSlideShow;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
+import org.apache.pdfbox.Loader;
 
 import java.io.*;
 import java.nio.file.*;
@@ -12,8 +17,8 @@ public class TextFileCollector {
     public static void main(String[] args) {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
 
-            // 1. Запрашиваем путь к папке с Word файлами
-            System.out.println("Введите путь к папке для поиска .docx файлов:");
+            // 1. Запрашиваем путь к папке с файлами
+            System.out.println("Введите путь к папке для поиска файлов (.docx, .pdf, .txt, .pptx):");
             String sourcePath = reader.readLine();
 
             Path sourceDir = Paths.get(sourcePath);
@@ -38,10 +43,10 @@ public class TextFileCollector {
 
             // 3. Запускаем процесс сбора и записи данных
             try (BufferedWriter writer = Files.newBufferedWriter(outputFile)) {
-                System.out.println("Поиск и обработка Word файлов...");
+                System.out.println("Поиск и обработка файлов...");
 
                 // Добавляем заголовок как в Java файле
-                writer.write("// Собранные тексты из Word файлов");
+                writer.write("// Собранные тексты из файлов (.docx, .pdf, .txt, .pptx)");
                 writer.newLine();
                 writer.write("// Дата создания: " + java.time.LocalDate.now());
                 writer.newLine();
@@ -51,10 +56,15 @@ public class TextFileCollector {
                 writer.newLine();
                 writer.newLine();
 
-                collectTextFromDocxFiles(sourceDir, writer);
+                collectTextFromFiles(sourceDir, writer);
 
                 System.out.println("Готово! Результат сохранен в файл: " + outputFile.toAbsolutePath());
                 System.out.println("Всего обработано файлов: " + fileCounter);
+                System.out.println("Из них:");
+                System.out.println("  - DOCX: " + docxCounter);
+                System.out.println("  - PDF: " + pdfCounter);
+                System.out.println("  - TXT: " + txtCounter);
+                System.out.println("  - PPTX: " + pptxCounter);
 
                 // Показываем статистику ошибок
                 if (errorCounter > 0) {
@@ -73,22 +83,45 @@ public class TextFileCollector {
     // Счетчики для статистики
     private static int fileCounter = 0;
     private static int errorCounter = 0;
+    private static int docxCounter = 0;
+    private static int pdfCounter = 0;
+    private static int txtCounter = 0;
+    private static int pptxCounter = 0;
 
-    private static void collectTextFromDocxFiles(Path rootDir, BufferedWriter writer) throws IOException {
+    private static void collectTextFromFiles(Path rootDir, BufferedWriter writer) throws IOException {
         Files.walkFileTree(rootDir, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                // Проверяем, что это файл и имеет расширение .docx
-                if (attrs.isRegularFile() && file.toString().toLowerCase().endsWith(".docx")) {
-                    try {
-                        processDocxFile(file, rootDir, writer);
-                        fileCounter++;
-                    } catch (Exception e) {
-                        errorCounter++;
-                        System.err.println("Ошибка при обработке файла: " + file);
-                        System.err.println("Причина: " + e.getMessage());
-                    }
+                if (!attrs.isRegularFile()) {
+                    return FileVisitResult.CONTINUE;
                 }
+
+                String fileName = file.toString().toLowerCase();
+
+                try {
+                    if (fileName.endsWith(".docx")) {
+                        processDocxFile(file, rootDir, writer);
+                        docxCounter++;
+                        fileCounter++;
+                    } else if (fileName.endsWith(".pdf")) {
+                        processPdfFile(file, rootDir, writer);
+                        pdfCounter++;
+                        fileCounter++;
+                    } else if (fileName.endsWith(".txt")) {
+                        processTxtFile(file, rootDir, writer);
+                        txtCounter++;
+                        fileCounter++;
+                    } else if (fileName.endsWith(".pptx")) {
+                        processPptxFile(file, rootDir, writer);
+                        pptxCounter++;
+                        fileCounter++;
+                    }
+                } catch (Exception e) {
+                    errorCounter++;
+                    System.err.println("Ошибка при обработке файла: " + file);
+                    System.err.println("Причина: " + e.getMessage());
+                }
+
                 return FileVisitResult.CONTINUE;
             }
 
@@ -100,21 +133,74 @@ public class TextFileCollector {
         });
     }
 
-    private static void processDocxFile(Path docxFile, Path rootDir, BufferedWriter writer) throws IOException {
-        // Вычисляем относительный путь от корневой папки
-        Path relativePath = rootDir.relativize(docxFile.getParent());
+    private static void processDocxFile(Path file, Path rootDir, BufferedWriter writer) throws IOException {
+        Path relativePath = rootDir.relativize(file.getParent());
         String address = relativePath.toString();
         if (address.isEmpty()) {
-            address = "."; // Если файл в корневой папке
+            address = ".";
         }
 
-        String fileName = docxFile.getFileName().toString();
+        String fileName = file.getFileName().toString();
+        String content = extractTextFromDocx(file);
 
-        // Извлекаем текст из Word файла
-        String content = extractTextFromDocx(docxFile);
+        writeFileHeader(writer, address, fileName, "DOCX");
+        writeContent(writer, content);
 
-        // Записываем в выходной файл в формате Java комментария
+        System.out.println("✓ Обработан DOCX: " + fileName + " (" + address + ")");
+    }
+
+    private static void processPdfFile(Path file, Path rootDir, BufferedWriter writer) throws IOException {
+        Path relativePath = rootDir.relativize(file.getParent());
+        String address = relativePath.toString();
+        if (address.isEmpty()) {
+            address = ".";
+        }
+
+        String fileName = file.getFileName().toString();
+        String content = extractTextFromPdf(file);
+
+        writeFileHeader(writer, address, fileName, "PDF");
+        writeContent(writer, content);
+
+        System.out.println("✓ Обработан PDF: " + fileName + " (" + address + ")");
+    }
+
+    private static void processTxtFile(Path file, Path rootDir, BufferedWriter writer) throws IOException {
+        Path relativePath = rootDir.relativize(file.getParent());
+        String address = relativePath.toString();
+        if (address.isEmpty()) {
+            address = ".";
+        }
+
+        String fileName = file.getFileName().toString();
+        String content = extractTextFromTxt(file);
+
+        writeFileHeader(writer, address, fileName, "TXT");
+        writeContent(writer, content);
+
+        System.out.println("✓ Обработан TXT: " + fileName + " (" + address + ")");
+    }
+
+    private static void processPptxFile(Path file, Path rootDir, BufferedWriter writer) throws IOException {
+        Path relativePath = rootDir.relativize(file.getParent());
+        String address = relativePath.toString();
+        if (address.isEmpty()) {
+            address = ".";
+        }
+
+        String fileName = file.getFileName().toString();
+        String content = extractTextFromPptx(file);
+
+        writeFileHeader(writer, address, fileName, "PPTX");
+        writeContent(writer, content);
+
+        System.out.println("✓ Обработан PPTX: " + fileName + " (" + address + ")");
+    }
+
+    private static void writeFileHeader(BufferedWriter writer, String address, String fileName, String fileType) throws IOException {
         writer.write("/*");
+        writer.newLine();
+        writer.write(" * Тип файла: " + fileType);
         writer.newLine();
         writer.write(" * Адрес: " + address);
         writer.newLine();
@@ -124,8 +210,9 @@ public class TextFileCollector {
         writer.newLine();
         writer.write("// Содержание:");
         writer.newLine();
+    }
 
-        // Разбиваем содержимое на строки и добавляем // перед каждой
+    private static void writeContent(BufferedWriter writer, String content) throws IOException {
         String[] lines = content.split("\\r?\\n");
         for (String line : lines) {
             writer.write("// " + line);
@@ -136,9 +223,6 @@ public class TextFileCollector {
         writer.write("// ----------------------------------------");
         writer.newLine();
         writer.newLine();
-
-        // Показываем прогресс в консоли
-        System.out.println("✓ Обработан: " + fileName + " (" + address + ")");
     }
 
     private static String extractTextFromDocx(Path filePath) {
@@ -153,7 +237,68 @@ public class TextFileCollector {
             return text.trim();
 
         } catch (Exception e) {
-            return "[ОШИБКА: Не удалось извлечь текст. Файл может быть поврежден или это не .docx. " +
+            return "[ОШИБКА: Не удалось извлечь текст из DOCX. " +
+                    "Ошибка: " + e.getMessage() + "]";
+        }
+    }
+
+    private static String extractTextFromPdf(Path filePath) {
+        try (PDDocument document = Loader.loadPDF(filePath.toFile())) {
+
+            PDFTextStripper stripper = new PDFTextStripper();
+            String text = stripper.getText(document);
+
+            if (text == null || text.trim().isEmpty()) {
+                return "[PDF файл не содержит текста (возможно, это отсканированный документ)]";
+            }
+            return text.trim();
+
+        } catch (Exception e) {
+            return "[ОШИБКА: Не удалось извлечь текст из PDF. " +
+                    "Ошибка: " + e.getMessage() + "]";
+        }
+    }
+
+    private static String extractTextFromTxt(Path filePath) {
+        try {
+            byte[] bytes = Files.readAllBytes(filePath);
+            String text = new String(bytes, "UTF-8");
+
+            if (text == null || text.trim().isEmpty() || text.trim().length() < 2) {
+                text = new String(bytes, "Windows-1251");
+            }
+
+            if (text == null || text.trim().isEmpty()) {
+                return "[TXT файл пуст]";
+            }
+            return text.trim();
+
+        } catch (Exception e) {
+            return "[ОШИБКА: Не удалось прочитать TXT файл. " +
+                    "Ошибка: " + e.getMessage() + "]";
+        }
+    }
+
+    private static String extractTextFromPptx(Path filePath) {
+        try (InputStream fis = Files.newInputStream(filePath);
+             XMLSlideShow ppt = new XMLSlideShow(fis);
+             XSLFExtractor extractor = new XSLFExtractor(ppt)) {
+
+            String text = extractor.getText();
+            if (text == null || text.trim().isEmpty()) {
+                return "[Презентация не содержит текста]";
+            }
+
+            // Добавляем информацию о слайдах для лучшей читаемости
+            StringBuilder formattedText = new StringBuilder();
+            formattedText.append("=== Презентация ===\n");
+            formattedText.append("Количество слайдов: ").append(ppt.getSlides().size()).append("\n\n");
+            formattedText.append(text.trim());
+
+            return formattedText.toString();
+
+        } catch (Exception e) {
+            return "[ОШИБКА: Не удалось извлечь текст из PPTX. " +
                     "Ошибка: " + e.getMessage() + "]";
         }
     }

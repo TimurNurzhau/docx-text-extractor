@@ -17,11 +17,28 @@
     </properties>
 
     <dependencies>
+        <!-- Для DOCX файлов -->
         <dependency>
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>
             <version>5.2.5</version>
         </dependency>
+
+        <!-- Для PDF файлов -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>3.0.0</version>
+        </dependency>
+
+        <!-- Для PPTX файлов (уже включен в poi-ooxml, но добавим явно) -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml-full</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+
+        <!-- Логирование (опционально) -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-core</artifactId>
