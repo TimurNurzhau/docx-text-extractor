@@ -4,6 +4,9 @@ import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xslf.extractor.XSLFExtractor;
 import org.apache.poi.xslf.usermodel.XMLSlideShow;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.pdfbox.Loader;
@@ -18,7 +21,7 @@ public class TextFileCollector {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
 
             // 1. Запрашиваем путь к папке с файлами
-            System.out.println("Введите путь к папке для поиска файлов (.docx, .pdf, .txt, .pptx):");
+            System.out.println("Введите путь к папке для поиска файлов (.docx, .pdf, .txt, .pptx, .xlsx, .xls):");
             String sourcePath = reader.readLine();
 
             Path sourceDir = Paths.get(sourcePath);
@@ -46,7 +49,7 @@ public class TextFileCollector {
                 System.out.println("Поиск и обработка файлов...");
 
                 // Добавляем заголовок как в Java файле
-                writer.write("// Собранные тексты из файлов (.docx, .pdf, .txt, .pptx)");
+                writer.write("// Собранные тексты из файлов (.docx, .pdf, .txt, .pptx, .xlsx, .xls)");
                 writer.newLine();
                 writer.write("// Дата создания: " + java.time.LocalDate.now());
                 writer.newLine();
@@ -65,6 +68,7 @@ public class TextFileCollector {
                 System.out.println("  - PDF: " + pdfCounter);
                 System.out.println("  - TXT: " + txtCounter);
                 System.out.println("  - PPTX: " + pptxCounter);
+                System.out.println("  - Excel (XLSX/XLS): " + excelCounter);
 
                 // Показываем статистику ошибок
                 if (errorCounter > 0) {
@@ -87,6 +91,7 @@ public class TextFileCollector {
     private static int pdfCounter = 0;
     private static int txtCounter = 0;
     private static int pptxCounter = 0;
+    private static int excelCounter = 0;
 
     private static void collectTextFromFiles(Path rootDir, BufferedWriter writer) throws IOException {
         Files.walkFileTree(rootDir, new SimpleFileVisitor<>() {
@@ -114,6 +119,10 @@ public class TextFileCollector {
                     } else if (fileName.endsWith(".pptx")) {
                         processPptxFile(file, rootDir, writer);
                         pptxCounter++;
+                        fileCounter++;
+                    } else if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
+                        processExcelFile(file, rootDir, writer);
+                        excelCounter++;
                         fileCounter++;
                     }
                 } catch (Exception e) {
@@ -195,6 +204,23 @@ public class TextFileCollector {
         writeContent(writer, content);
 
         System.out.println("✓ Обработан PPTX: " + fileName + " (" + address + ")");
+    }
+
+    // НОВЫЙ МЕТОД для обработки Excel файлов
+    private static void processExcelFile(Path file, Path rootDir, BufferedWriter writer) throws IOException {
+        Path relativePath = rootDir.relativize(file.getParent());
+        String address = relativePath.toString();
+        if (address.isEmpty()) {
+            address = ".";
+        }
+
+        String fileName = file.getFileName().toString();
+        String content = extractTextFromExcel(file);
+
+        writeFileHeader(writer, address, fileName, "EXCEL");
+        writeContent(writer, content);
+
+        System.out.println("✓ Обработан Excel: " + fileName + " (" + address + ")");
     }
 
     private static void writeFileHeader(BufferedWriter writer, String address, String fileName, String fileType) throws IOException {
@@ -300,6 +326,105 @@ public class TextFileCollector {
         } catch (Exception e) {
             return "[ОШИБКА: Не удалось извлечь текст из PPTX. " +
                     "Ошибка: " + e.getMessage() + "]";
+        }
+    }
+
+    // НОВЫЙ МЕТОД для извлечения текста из Excel файлов
+    private static String extractTextFromExcel(Path filePath) {
+        StringBuilder result = new StringBuilder();
+
+        try (InputStream fis = Files.newInputStream(filePath);
+             Workbook workbook = filePath.toString().toLowerCase().endsWith(".xlsx")
+                     ? new XSSFWorkbook(fis)
+                     : new HSSFWorkbook(fis)) {
+
+            int numberOfSheets = workbook.getNumberOfSheets();
+            result.append("=== Excel файл ===\n");
+            result.append("Количество листов: ").append(numberOfSheets).append("\n\n");
+
+            // Проходим по всем листам
+            for (int i = 0; i < numberOfSheets; i++) {
+                Sheet sheet = workbook.getSheetAt(i);
+                result.append("--- Лист ").append(i + 1).append(": ");
+                result.append(sheet.getSheetName()).append(" ---\n");
+
+                // Проходим по всем строкам
+                boolean hasData = false;
+                for (Row row : sheet) {
+                    StringBuilder rowText = new StringBuilder();
+                    boolean rowHasData = false;
+
+                    // Проходим по всем ячейкам в строке
+                    for (Cell cell : row) {
+                        String cellValue = getCellValue(cell);
+                        if (cellValue != null && !cellValue.trim().isEmpty()) {
+                            if (rowHasData) {
+                                rowText.append(" | ");
+                            }
+                            rowText.append(cellValue);
+                            rowHasData = true;
+                            hasData = true;
+                        }
+                    }
+
+                    if (rowHasData) {
+                        result.append("  Ряд ").append(row.getRowNum() + 1).append(": ");
+                        result.append(rowText.toString()).append("\n");
+                    }
+                }
+
+                if (!hasData) {
+                    result.append("  [Лист пуст]\n");
+                }
+                result.append("\n");
+            }
+
+            if (result.toString().contains("=== Excel файл ===") &&
+                    !result.toString().contains("[Лист пуст]") &&
+                    !result.toString().contains("Ряд")) {
+                return "[Excel файл не содержит данных]";
+            }
+
+            return result.toString();
+
+        } catch (Exception e) {
+            return "[ОШИБКА: Не удалось извлечь текст из Excel. " +
+                    "Ошибка: " + e.getMessage() + "]";
+        }
+    }
+
+    // Вспомогательный метод для получения значения ячейки
+    private static String getCellValue(Cell cell) {
+        if (cell == null) {
+            return "";
+        }
+
+        switch (cell.getCellType()) {
+            case STRING:
+                return cell.getStringCellValue();
+            case NUMERIC:
+                if (DateUtil.isCellDateFormatted(cell)) {
+                    return cell.getDateCellValue().toString();
+                } else {
+                    double value = cell.getNumericCellValue();
+                    if (value == (long) value) {
+                        return String.valueOf((long) value);
+                    } else {
+                        return String.valueOf(value);
+                    }
+                }
+            case BOOLEAN:
+                return String.valueOf(cell.getBooleanCellValue());
+            case FORMULA:
+                try {
+                    return cell.getStringCellValue();
+                } catch (IllegalStateException e) {
+                    return "[ФОРМУЛА: " + cell.getCellFormula() + "]";
+                }
+            case BLANK:
+                return "";
+            default:
+                return "";
         }
     }
 }
